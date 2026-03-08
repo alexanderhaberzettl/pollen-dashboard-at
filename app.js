@@ -43,6 +43,14 @@ const SEVERITY_LABELS = {
 
 const DAY_LABELS = ['Heute', 'Morgen', 'Übermorgen', 'In 3 Tagen'];
 
+// ── Polleninformation.at Config ─────────────────────────────────────
+
+const POLLENINFO_API_KEY = 'vZgxd0kWcGaEcYnzMRPpqRFGVcn6NDh26fcvnNEzquq0RGHgRqxg9lG8oW8JZXrt';
+
+// Contamination level 0–4 mapped to our severity scale
+const CONTAMINATION_SEVERITY = ['none', 'low', 'moderate', 'high', 'very_high'];
+const CONTAMINATION_LABELS = ['Keine', 'Gering', 'Mäßig', 'Hoch', 'Sehr hoch'];
+
 // ── ORF State Mapping ───────────────────────────────────────────────
 
 const ORF_STATES = {
@@ -95,6 +103,16 @@ zipInput.addEventListener('input', () => {
   zipInput.value = zipInput.value.replace(/\D/g, '').slice(0, 4);
 });
 
+// Auto-search if ?zip= URL parameter is present
+(function checkUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const zip = params.get('zip') || params.get('ZIP') || params.get('plz') || params.get('PLZ');
+  if (zip && /^\d{4}$/.test(zip.trim())) {
+    zipInput.value = zip.trim();
+    handleSearch();
+  }
+})();
+
 // ── Main Search Handler ─────────────────────────────────────────────
 
 async function handleSearch() {
@@ -116,13 +134,15 @@ async function handleSearch() {
     locationInfo.textContent = `📍 ${location.display} (${location.lat.toFixed(4)}°N, ${location.lon.toFixed(4)}°E)`;
 
     // Step 2: Fetch pollen data from all sources in parallel
-    const [pollenData, orfData] = await Promise.all([
+    const [pollenData, orfData, pollenInfoData] = await Promise.all([
       fetchOpenMeteoPollen(location.lat, location.lon),
       fetchOrfPollen(zip).catch((err) => ({ error: err.message })),
+      fetchPollenInfo(location.lat, location.lon).catch((err) => ({ error: err.message })),
     ]);
 
     // Step 3: Render results
     renderResults(location, pollenData);
+    renderPollenInfoResults(pollenInfoData);
     renderOrfResults(orfData, zip);
   } catch (err) {
     showError(err.message);
@@ -355,6 +375,160 @@ function getSeverityColor(severity) {
     very_high: '#f44336',
   };
   return colors[severity] || '#e5e7eb';
+}
+
+// ── Polleninformation.at API ─────────────────────────────────────────
+
+async function fetchPollenInfo(lat, lon) {
+  const params = new URLSearchParams({
+    country: 'AT',
+    lang: 'de',
+    latitude: lat,
+    longitude: lon,
+    apikey: POLLENINFO_API_KEY,
+  });
+
+  const url = `https://www.polleninformation.at/api/forecast/public?${params}`;
+
+  const fetchOpts = {};
+  if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+    fetchOpts.signal = AbortSignal.timeout(10000);
+  }
+
+  const response = await fetch(url, fetchOpts);
+
+  if (!response.ok) {
+    throw new Error(`Polleninformation.at: HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  return processPollenInfoData(data);
+}
+
+function processPollenInfoData(data) {
+  const allergens = (data.contamination || []).map((item) => {
+    const levels = [
+      item.contamination_1 ?? 0,
+      item.contamination_2 ?? 0,
+      item.contamination_3 ?? 0,
+      item.contamination_4 ?? 0,
+    ];
+
+    // Parse title: "Erle (Alnus)" → name="Erle", latin="Alnus"
+    const titleMatch = item.poll_title.match(/^(.+?)\s*\((.+)\)$/);
+    const name = titleMatch ? titleMatch[1].trim() : item.poll_title;
+    const latin = titleMatch ? titleMatch[2].trim() : '';
+
+    return {
+      pollId: item.poll_id,
+      name: name,
+      latin: latin,
+      levels: levels,
+      todayLevel: levels[0],
+      severity: CONTAMINATION_SEVERITY[levels[0]] || 'none',
+      dailySeverity: levels.map((l) => CONTAMINATION_SEVERITY[l] || 'none'),
+    };
+  });
+
+  // Sort by today's level descending
+  allergens.sort((a, b) => b.todayLevel - a.todayLevel);
+
+  return {
+    allergens: allergens,
+    allergyRisk: data.allergyrisk || {},
+    allergyRiskHourly: data.allergyrisk_hourly || {},
+  };
+}
+
+function renderPollenInfoResults(data) {
+  const section = document.getElementById('polleninfo-section');
+  const grid = document.getElementById('polleninfo-grid');
+
+  if (data.error) {
+    section.hidden = false;
+    grid.innerHTML = `<p class="orf-error" style="grid-column:1/-1">⚠ ${escapeHtml(data.error)}</p>`;
+    return;
+  }
+
+  if (!data.allergens || data.allergens.length === 0) {
+    section.hidden = false;
+    grid.innerHTML = `<div class="no-data-message" style="grid-column:1/-1">
+      Derzeit keine Daten von Polleninformation.at verfügbar.
+    </div>`;
+    return;
+  }
+
+  section.hidden = false;
+  grid.innerHTML = '';
+
+  // Allergy risk summary
+  const risk = data.allergyRisk;
+  if (risk.allergyrisk_1 != null) {
+    const riskBar = document.createElement('div');
+    riskBar.className = 'allergy-risk-summary';
+    const riskToday = risk.allergyrisk_1;
+    const riskColor = riskToday <= 2 ? 'var(--color-none)' :
+                      riskToday <= 4 ? 'var(--color-low)' :
+                      riskToday <= 6 ? 'var(--color-moderate)' :
+                      riskToday <= 8 ? 'var(--color-high)' :
+                                       'var(--color-very-high)';
+
+    riskBar.innerHTML = `
+      <div class="risk-header">Allergierisiko heute</div>
+      <div class="risk-meter">
+        <div class="risk-meter-fill" style="width:${riskToday * 10}%; background:${riskColor}"></div>
+      </div>
+      <div class="risk-values">
+        ${[risk.allergyrisk_1, risk.allergyrisk_2, risk.allergyrisk_3, risk.allergyrisk_4]
+          .map((v, i) => `<span class="risk-day">${DAY_LABELS[i]}: <strong>${v ?? '–'}</strong>/10</span>`)
+          .join('')}
+      </div>`;
+    grid.appendChild(riskBar);
+  }
+
+  // Allergen cards
+  for (const allergen of data.allergens) {
+    grid.appendChild(createPollenInfoCard(allergen));
+  }
+}
+
+function createPollenInfoCard(allergen) {
+  const card = document.createElement('div');
+  card.className = 'allergen-card';
+
+  const severityClass = `severity-${allergen.severity.replace('_', '-')}`;
+  const severityLabel = CONTAMINATION_LABELS[allergen.todayLevel] || 'Keine';
+
+  const forecastHTML = allergen.dailySeverity
+    .map((sev, i) => {
+      const dotColor = getSeverityColor(sev);
+      return `
+        <div class="forecast-day">
+          <span class="forecast-day-label">${DAY_LABELS[i] || `Tag ${i}`}</span>
+          <span class="forecast-dot" style="background:${dotColor}" title="${SEVERITY_LABELS[sev]}"></span>
+        </div>`;
+    })
+    .join('');
+
+  card.innerHTML = `
+    <div class="allergen-card-header">
+      <div>
+        <div class="allergen-name">${escapeHtml(allergen.name)}</div>
+        ${allergen.latin ? `<div class="allergen-name-latin">${escapeHtml(allergen.latin)}</div>` : ''}
+      </div>
+      <span class="severity-badge ${severityClass}">${severityLabel}</span>
+    </div>
+    <div class="allergen-value">
+      Belastungsstufe: ${allergen.todayLevel}/4
+    </div>
+    <div class="severity-bar-container">
+      <div class="severity-bar level-${allergen.severity.replace('_', '-')}"></div>
+    </div>
+    <div class="forecast-row">
+      ${forecastHTML}
+    </div>`;
+
+  return card;
 }
 
 // ── ORF Wetter Pollen ───────────────────────────────────────────────

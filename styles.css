@@ -329,6 +329,56 @@ header h1 {
   text-decoration: underline;
 }
 
+.polleninfo-badge {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* Polleninfo Allergy Risk */
+.allergy-risk-summary {
+  grid-column: 1 / -1;
+  background: #f8fafc;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.risk-header {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.risk-meter {
+  height: 8px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+}
+
+.risk-meter-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.risk-values {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.risk-day {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.risk-day strong {
+  color: var(--color-text);
+}
+
 /* ORF Section */
 .orf-badge {
   background: #f0fdf4;
