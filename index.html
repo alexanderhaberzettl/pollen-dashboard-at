@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pollenflug Austria</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Pollenflug Austria</h1>
+      <p class="subtitle">Aktuelle Pollenbelastung in Österreich</p>
+    </header>
+
+    <div class="search-section">
+      <div class="search-box">
+        <label for="zip-input">Postleitzahl eingeben</label>
+        <div class="input-group">
+          <input
+            type="text"
+            id="zip-input"
+            placeholder="z.B. 1150"
+            maxlength="4"
+            pattern="[0-9]{4}"
+            inputmode="numeric"
+          >
+          <button id="search-btn" type="button">Suchen</button>
+        </div>
+        <p class="location-info" id="location-info"></p>
+      </div>
+    </div>
+
+    <div id="error-message" class="error-message" hidden></div>
+    <div id="loading" class="loading" hidden>
+      <div class="spinner"></div>
+      <p>Pollendaten werden geladen...</p>
+    </div>
+
+    <div id="results" class="results" hidden>
+      <div class="results-header">
+        <h2 id="results-title"></h2>
+        <p class="results-date" id="results-date"></p>
+      </div>
+
+      <div class="source-section" id="open-meteo-section">
+        <div class="source-header">
+          <h3>Open-Meteo (CAMS / SILAM Modell)</h3>
+          <span class="source-badge">Grains/m³</span>
+        </div>
+        <div class="allergen-grid" id="open-meteo-grid"></div>
+        <p class="source-attribution">
+          Datenquelle: <a href="https://open-meteo.com/en/docs/air-quality-api" target="_blank" rel="noopener">Open-Meteo Air Quality API</a>
+          &mdash; Copernicus CAMS European Air Quality Forecast
+        </p>
+      </div>
+
+      <div class="source-section" id="orf-section" hidden>
+        <div class="source-header">
+          <h3>ORF Wetter — Pollenfluginformation</h3>
+          <span class="source-badge orf-badge">Textprognose</span>
+        </div>
+        <div id="orf-state-label" class="orf-state-label"></div>
+        <div id="orf-content" class="orf-textbox"></div>
+        <p class="source-attribution">
+          Datenquelle: <a id="orf-link" href="https://wetter.orf.at/oes/pollen" target="_blank" rel="noopener">wetter.orf.at</a>
+          &mdash; GeoSphere Austria / Österreichischer Polleninformationsdienst
+        </p>
+      </div>
+
+      <div class="source-section" id="polleninfo-section" hidden>
+        <div class="source-header">
+          <h3>Polleninformation.at (MedUni Wien)</h3>
+          <span class="source-badge">Belastungsstufe 0–4</span>
+        </div>
+        <div class="allergen-grid" id="polleninfo-grid"></div>
+        <p class="source-attribution">
+          Datenquelle: <a href="https://www.polleninformation.at" target="_blank" rel="noopener">Österreichischer Polleninformationsdienst</a>,
+          Medizinische Universität Wien
+        </p>
+      </div>
+    </div>
+
+    <footer>
+      <p>Die Daten dienen nur zur Information und ersetzen keine ärztliche Beratung.</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

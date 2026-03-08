@@ -1,0 +1,590 @@
+// ── Allergen Configuration ──────────────────────────────────────────
+
+const ALLERGENS = {
+  alder_pollen: {
+    name: 'Erle',
+    latin: 'Alnus',
+    thresholds: [0, 10, 50, 200],
+  },
+  birch_pollen: {
+    name: 'Birke',
+    latin: 'Betula',
+    thresholds: [0, 10, 50, 200],
+  },
+  grass_pollen: {
+    name: 'Gräser',
+    latin: 'Poaceae',
+    thresholds: [0, 5, 20, 50],
+  },
+  mugwort_pollen: {
+    name: 'Beifuß',
+    latin: 'Artemisia',
+    thresholds: [0, 5, 15, 30],
+  },
+  olive_pollen: {
+    name: 'Olive',
+    latin: 'Olea',
+    thresholds: [0, 10, 50, 200],
+  },
+  ragweed_pollen: {
+    name: 'Ragweed',
+    latin: 'Ambrosia',
+    thresholds: [0, 5, 15, 30],
+  },
+};
+
+const SEVERITY_LABELS = {
+  none: 'Keine',
+  low: 'Gering',
+  moderate: 'Mäßig',
+  high: 'Hoch',
+  very_high: 'Sehr hoch',
+};
+
+const DAY_LABELS = ['Heute', 'Morgen', 'Übermorgen', 'In 3 Tagen'];
+
+// ── ORF State Mapping ───────────────────────────────────────────────
+
+const ORF_STATES = {
+  wien:               { label: 'Wien',               slug: 'wien' },
+  niederoesterreich:  { label: 'Niederösterreich',   slug: 'niederoesterreich' },
+  oberoesterreich:    { label: 'Oberösterreich',     slug: 'oberoesterreich' },
+  salzburg:           { label: 'Salzburg',            slug: 'salzburg' },
+  tirol:              { label: 'Tirol',               slug: 'tirol' },
+  vorarlberg:         { label: 'Vorarlberg',          slug: 'vorarlberg' },
+  burgenland:         { label: 'Burgenland',          slug: 'burgenland' },
+  steiermark:         { label: 'Steiermark',          slug: 'steiermark' },
+  kaernten:           { label: 'Kärnten',             slug: 'kaernten' },
+};
+
+function zipToState(zip) {
+  const num = parseInt(zip, 10);
+  if (num >= 1000 && num <= 1999) return 'wien';
+  if (num >= 2000 && num <= 3999) return 'niederoesterreich';
+  if (num >= 4000 && num <= 4999) return 'oberoesterreich';
+  if (num >= 5000 && num <= 5999) return 'salzburg';
+  if (num >= 6000 && num <= 6599) return 'tirol';
+  if (num >= 6600 && num <= 6999) return 'vorarlberg';
+  if (num >= 7000 && num <= 7999) return 'burgenland';
+  if (num >= 8000 && num <= 8999) return 'steiermark';
+  if (num >= 9000 && num <= 9999) return 'kaernten';
+  return null;
+}
+
+// ── DOM References ──────────────────────────────────────────────────
+
+const zipInput = document.getElementById('zip-input');
+const searchBtn = document.getElementById('search-btn');
+const locationInfo = document.getElementById('location-info');
+const errorMessage = document.getElementById('error-message');
+const loading = document.getElementById('loading');
+const results = document.getElementById('results');
+const resultsTitle = document.getElementById('results-title');
+const resultsDate = document.getElementById('results-date');
+const openMeteoGrid = document.getElementById('open-meteo-grid');
+
+// ── Event Listeners ─────────────────────────────────────────────────
+
+searchBtn.addEventListener('click', handleSearch);
+zipInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handleSearch();
+});
+
+// Only allow digits in ZIP input
+zipInput.addEventListener('input', () => {
+  zipInput.value = zipInput.value.replace(/\D/g, '').slice(0, 4);
+});
+
+// ── Main Search Handler ─────────────────────────────────────────────
+
+async function handleSearch() {
+  const zip = zipInput.value.trim();
+
+  if (!/^\d{4}$/.test(zip)) {
+    showError('Bitte eine gültige 4-stellige österreichische Postleitzahl eingeben.');
+    return;
+  }
+
+  hideError();
+  hideResults();
+  showLoading();
+  searchBtn.disabled = true;
+
+  try {
+    // Step 1: Geocode ZIP to coordinates
+    const location = await geocodeZip(zip);
+    locationInfo.textContent = `📍 ${location.display} (${location.lat.toFixed(4)}°N, ${location.lon.toFixed(4)}°E)`;
+
+    // Step 2: Fetch pollen data from all sources in parallel
+    const [pollenData, orfData] = await Promise.all([
+      fetchOpenMeteoPollen(location.lat, location.lon),
+      fetchOrfPollen(zip).catch((err) => ({ error: err.message })),
+    ]);
+
+    // Step 3: Render results
+    renderResults(location, pollenData);
+    renderOrfResults(orfData, zip);
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    hideLoading();
+    searchBtn.disabled = false;
+  }
+}
+
+// ── Geocoding ───────────────────────────────────────────────────────
+
+async function geocodeZip(zip) {
+  const url = `https://nominatim.openstreetmap.org/search?postalcode=${zip}&country=AT&format=json&limit=1`;
+
+  const response = await fetch(url, {
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error('Geocoding-Dienst nicht erreichbar. Bitte später erneut versuchen.');
+  }
+
+  const data = await response.json();
+
+  if (!data.length) {
+    throw new Error(`Postleitzahl ${zip} wurde nicht gefunden. Bitte eine gültige österreichische PLZ eingeben.`);
+  }
+
+  const result = data[0];
+  // Extract a readable place name, skipping the ZIP code and cadastral prefixes
+  const parts = result.display_name.split(',').map((s) => s.trim());
+  const nameParts = parts
+    .filter((p) => p !== zip && !/^\d{4}$/.test(p))
+    .map((p) => p.replace(/^KG\s+/, ''));
+  const placeName = nameParts.slice(0, 2).join(', ');
+
+  return {
+    lat: parseFloat(result.lat),
+    lon: parseFloat(result.lon),
+    display: placeName,
+    zip: zip,
+  };
+}
+
+// ── Open-Meteo API ──────────────────────────────────────────────────
+
+async function fetchOpenMeteoPollen(lat, lon) {
+  const params = new URLSearchParams({
+    latitude: lat,
+    longitude: lon,
+    hourly: Object.keys(ALLERGENS).join(','),
+    timezone: 'Europe/Vienna',
+    forecast_days: 4,
+  });
+
+  const url = `https://air-quality-api.open-meteo.com/v1/air-quality?${params}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error('Pollendaten konnten nicht geladen werden. Bitte später erneut versuchen.');
+  }
+
+  const data = await response.json();
+  return processOpenMeteoData(data);
+}
+
+function processOpenMeteoData(data) {
+  const hourly = data.hourly;
+  const times = hourly.time.map((t) => new Date(t));
+  const now = new Date();
+
+  // Find the index of the current hour
+  const currentHourIndex = times.findIndex(
+    (t) => t.getFullYear() === now.getFullYear() &&
+           t.getMonth() === now.getMonth() &&
+           t.getDate() === now.getDate() &&
+           t.getHours() === now.getHours()
+  );
+
+  // Group data by day
+  const days = {};
+  times.forEach((t, i) => {
+    const dayKey = t.toISOString().split('T')[0];
+    if (!days[dayKey]) days[dayKey] = [];
+    days[dayKey].push(i);
+  });
+
+  const dayKeys = Object.keys(days).sort();
+  const allergenResults = {};
+
+  for (const [key, config] of Object.entries(ALLERGENS)) {
+    const values = hourly[key];
+    if (!values) continue;
+
+    // Current value (or latest available)
+    const currentIdx = currentHourIndex >= 0 ? currentHourIndex : times.length - 1;
+    const currentValue = values[currentIdx] ?? 0;
+
+    // Daily max for each forecast day
+    const dailyMax = dayKeys.slice(0, 4).map((dayKey) => {
+      const indices = days[dayKey];
+      const dayValues = indices.map((i) => values[i] ?? 0);
+      return Math.max(...dayValues);
+    });
+
+    // Daily average for today
+    const todayKey = dayKeys[0];
+    const todayIndices = days[todayKey] || [];
+    const todayValues = todayIndices.map((i) => values[i] ?? 0);
+    const todayAvg = todayValues.reduce((a, b) => a + b, 0) / todayValues.length;
+
+    allergenResults[key] = {
+      current: Math.round(currentValue),
+      todayAvg: Math.round(todayAvg),
+      todayMax: Math.round(dailyMax[0] ?? 0),
+      dailyMax: dailyMax.map(Math.round),
+      severity: classifySeverity(dailyMax[0] ?? 0, config.thresholds),
+      dailySeverity: dailyMax.map((v) => classifySeverity(v, config.thresholds)),
+    };
+  }
+
+  return {
+    allergens: allergenResults,
+    generatedAt: new Date(),
+  };
+}
+
+// ── Severity Classification ─────────────────────────────────────────
+
+function classifySeverity(value, thresholds) {
+  if (value <= 0) return 'none';
+  if (value < thresholds[1]) return 'low';
+  if (value < thresholds[2]) return 'moderate';
+  if (value < thresholds[3]) return 'high';
+  return 'very_high';
+}
+
+// ── Rendering ───────────────────────────────────────────────────────
+
+function renderResults(location, pollenData) {
+  resultsTitle.textContent = `Pollenbelastung für ${location.zip} ${location.display}`;
+
+  const dateStr = pollenData.generatedAt.toLocaleDateString('de-AT', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  resultsDate.textContent = `Stand: ${dateStr}`;
+
+  openMeteoGrid.innerHTML = '';
+
+  // Check if any pollen data is available
+  const hasData = Object.values(pollenData.allergens).some(
+    (a) => a.todayMax > 0 || a.dailyMax.some((v) => v > 0)
+  );
+
+  if (!hasData) {
+    openMeteoGrid.innerHTML = `
+      <div class="no-data-message" style="grid-column: 1 / -1;">
+        Derzeit keine Pollenbelastung in dieser Region.
+        Pollendaten sind hauptsächlich während der Pollensaison (Februar–September) verfügbar.
+      </div>`;
+  } else {
+    // Sort: active allergens first, then by severity
+    const severityOrder = { very_high: 4, high: 3, moderate: 2, low: 1, none: 0 };
+    const sortedKeys = Object.keys(pollenData.allergens).sort((a, b) => {
+      return severityOrder[pollenData.allergens[b].severity] -
+             severityOrder[pollenData.allergens[a].severity];
+    });
+
+    for (const key of sortedKeys) {
+      const data = pollenData.allergens[key];
+      const config = ALLERGENS[key];
+      openMeteoGrid.appendChild(createAllergenCard(config, data));
+    }
+  }
+
+  showResults();
+}
+
+function createAllergenCard(config, data) {
+  const card = document.createElement('div');
+  card.className = 'allergen-card';
+
+  const severityClass = `severity-${data.severity.replace('_', '-')}`;
+  const severityLabel = SEVERITY_LABELS[data.severity];
+
+  // Forecast dots
+  const forecastHTML = data.dailySeverity
+    .map((sev, i) => {
+      const dotColor = getSeverityColor(sev);
+      return `
+        <div class="forecast-day">
+          <span class="forecast-day-label">${DAY_LABELS[i] || `Tag ${i}`}</span>
+          <span class="forecast-dot" style="background:${dotColor}" title="${SEVERITY_LABELS[sev]}"></span>
+        </div>`;
+    })
+    .join('');
+
+  card.innerHTML = `
+    <div class="allergen-card-header">
+      <div>
+        <div class="allergen-name">${config.name}</div>
+        <div class="allergen-name-latin">${config.latin}</div>
+      </div>
+      <span class="severity-badge ${severityClass}">${severityLabel}</span>
+    </div>
+    <div class="allergen-value">
+      Aktuell: ${data.current} grains/m³ · Tageshoch: ${data.todayMax} grains/m³
+    </div>
+    <div class="severity-bar-container">
+      <div class="severity-bar level-${data.severity.replace('_', '-')}"></div>
+    </div>
+    <div class="forecast-row">
+      ${forecastHTML}
+    </div>`;
+
+  return card;
+}
+
+function getSeverityColor(severity) {
+  const colors = {
+    none: '#4caf50',
+    low: '#8bc34a',
+    moderate: '#ffc107',
+    high: '#ff9800',
+    very_high: '#f44336',
+  };
+  return colors[severity] || '#e5e7eb';
+}
+
+// ── ORF Wetter Pollen ───────────────────────────────────────────────
+
+// CORS proxies to try in order (Safari blocks some proxies)
+const CORS_PROXIES = [
+  {
+    name: 'allorigins',
+    buildUrl: (url) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+    extractHtml: (data) => data.contents,
+  },
+  {
+    name: 'corsproxy.io',
+    buildUrl: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    extractHtml: (text) => text, // returns raw HTML
+    isRaw: true,
+  },
+  {
+    name: 'corsproxy.org',
+    buildUrl: (url) => `https://corsproxy.org/?${encodeURIComponent(url)}`,
+    extractHtml: (text) => text,
+    isRaw: true,
+  },
+];
+
+async function fetchOrfPollen(zip) {
+  const stateKey = zipToState(zip);
+  if (!stateKey) {
+    throw new Error('Bundesland konnte nicht ermittelt werden.');
+  }
+
+  const state = ORF_STATES[stateKey];
+  const orfUrl = `https://wetter.orf.at/${state.slug}/pollen`;
+
+  let lastError = null;
+
+  for (const proxy of CORS_PROXIES) {
+    try {
+      const proxyUrl = proxy.buildUrl(orfUrl);
+      // AbortSignal.timeout may not exist in older Safari
+      const fetchOpts = {};
+      if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+        fetchOpts.signal = AbortSignal.timeout(10000);
+      }
+      const response = await fetch(proxyUrl, fetchOpts);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      let html;
+      if (proxy.isRaw) {
+        html = await response.text();
+      } else {
+        const data = await response.json();
+        html = proxy.extractHtml(data);
+      }
+
+      if (!html || html.length < 100) {
+        throw new Error('Leere Antwort');
+      }
+
+      return parseOrfHtml(html, state, orfUrl);
+    } catch (err) {
+      lastError = err;
+      // Try the next proxy
+    }
+  }
+
+  throw new Error(`ORF Wetter konnte nicht geladen werden: ${lastError?.message || 'Alle Proxies fehlgeschlagen'}`);
+}
+
+function parseOrfHtml(html, state, sourceUrl) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  // Extract main pollen text from fulltextWrapper or storyText
+  const fulltext = doc.querySelector('.fulltextWrapper') ||
+                   doc.querySelector('#ss-storyText') ||
+                   doc.querySelector('.storyText');
+
+  let paragraphs = [];
+  let title = '';
+  let publishDate = '';
+
+  // Get the heading
+  const h1 = doc.querySelector('h1');
+  if (h1) {
+    title = h1.textContent.trim();
+  }
+
+  // Get the publication date
+  const dateEl = doc.querySelector('.date');
+  if (dateEl) {
+    publishDate = dateEl.textContent.trim();
+  }
+
+  // Words/patterns to skip in extracted paragraphs
+  const skipPatterns = [
+    /^Quelle:/i,
+    /^Publiziert am/i,
+    /^Seitenanfang$/i,
+    /^Zum Inhalt/i,
+    /^Navigation$/i,
+    /^Wetter$/i,
+    /^\d{2}\.\d{2}\.\d{4}$/,
+  ];
+
+  function isUsefulText(text) {
+    if (!text || text.length < 20) return false;
+    return !skipPatterns.some((re) => re.test(text));
+  }
+
+  if (fulltext) {
+    // Extract all paragraph text
+    const pElements = fulltext.querySelectorAll('p');
+    if (pElements.length > 0) {
+      pElements.forEach((p) => {
+        const text = p.textContent.trim();
+        if (isUsefulText(text)) {
+          paragraphs.push(text);
+        }
+      });
+    }
+
+    // Fallback: if no <p> tags, get the textContent directly
+    if (paragraphs.length === 0) {
+      const rawText = fulltext.textContent.trim();
+      if (rawText) {
+        paragraphs = rawText
+          .split(/\n\n+/)
+          .map((s) => s.trim())
+          .filter(isUsefulText);
+      }
+    }
+  }
+
+  // If fulltextWrapper parsing failed, try a broader approach
+  if (paragraphs.length === 0) {
+    const allParagraphs = doc.querySelectorAll('p');
+    allParagraphs.forEach((p) => {
+      const text = p.textContent.trim();
+      if (text.length > 50 && /pollen|allergen|blüte|belastung|konzentration/i.test(text)) {
+        paragraphs.push(text);
+      }
+    });
+  }
+
+  // Remove paragraphs that duplicate the title
+  if (title) {
+    paragraphs = paragraphs.filter((p) => p !== title);
+  }
+
+  return {
+    state: state,
+    title: title,
+    publishDate: publishDate,
+    paragraphs: paragraphs,
+    sourceUrl: sourceUrl,
+  };
+}
+
+function renderOrfResults(orfData, zip) {
+  const orfSection = document.getElementById('orf-section');
+  const orfContent = document.getElementById('orf-content');
+  const orfStateLabel = document.getElementById('orf-state-label');
+  const orfLink = document.getElementById('orf-link');
+
+  if (orfData.error) {
+    orfSection.hidden = false;
+    orfStateLabel.textContent = '';
+    orfContent.innerHTML = `<p class="orf-error">⚠ ${orfData.error}</p>`;
+    return;
+  }
+
+  orfSection.hidden = false;
+  orfStateLabel.textContent = `Bundesland: ${orfData.state.label}`;
+  orfLink.href = orfData.sourceUrl;
+
+  if (orfData.paragraphs.length === 0) {
+    orfContent.innerHTML = '<p class="orf-error">Kein Pollentext auf der ORF-Seite gefunden.</p>';
+    return;
+  }
+
+  let html = '';
+
+  if (orfData.title) {
+    html += `<p><strong>${orfData.title}</strong></p>`;
+  }
+
+  orfData.paragraphs.forEach((p) => {
+    html += `<p>${escapeHtml(p)}</p>`;
+  });
+
+  if (orfData.publishDate) {
+    html += `<p class="orf-date">${escapeHtml(orfData.publishDate)}</p>`;
+  }
+
+  orfContent.innerHTML = html;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ── UI Helpers ──────────────────────────────────────────────────────
+
+function showError(msg) {
+  errorMessage.textContent = msg;
+  errorMessage.hidden = false;
+}
+
+function hideError() {
+  errorMessage.hidden = true;
+}
+
+function showLoading() {
+  loading.hidden = false;
+}
+
+function hideLoading() {
+  loading.hidden = true;
+}
+
+function showResults() {
+  results.hidden = false;
+}
+
+function hideResults() {
+  results.hidden = true;
+}
