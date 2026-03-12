@@ -86,6 +86,7 @@ header h1 {
 
 #zip-input {
   flex: 1;
+  min-width: 0;
   padding: 0.75rem 1rem;
   border: 2px solid var(--color-border);
   border-radius: 8px;
@@ -110,6 +111,8 @@ header h1 {
   cursor: pointer;
   transition: background 0.2s;
   font-family: inherit;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 #search-btn:hover {
@@ -226,22 +229,143 @@ header h1 {
   box-shadow: var(--shadow);
 }
 
-.allergen-card-header {
+.allergen-card-hide-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s;
+  margin: -0.25rem -0.25rem -0.25rem 0;
+}
+
+.allergen-card:hover .allergen-card-hide-btn {
+  opacity: 1;
+}
+
+.allergen-card-hide-btn:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+/* Hidden allergens section */
+.hidden-allergens-section:empty {
+  display: none;
+}
+
+.hidden-allergens-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.5rem 0;
+  font-family: inherit;
+}
+
+.hidden-allergens-toggle:hover {
+  color: var(--color-text);
+}
+
+.hidden-allergens-toggle .chevron {
+  transition: transform 0.2s;
+  font-size: 0.7rem;
+}
+
+.hidden-allergens-toggle.expanded .chevron {
+  transform: rotate(90deg);
+}
+
+.hidden-allergens-list {
+  display: none;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.hidden-allergens-list.visible {
+  display: flex;
+}
+
+.hidden-allergen-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: #f1f5f9;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  padding: 0.3rem 0.5rem 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+}
+
+.hidden-allergen-chip button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: 50%;
+  padding: 0;
+}
+
+.hidden-allergen-chip button:hover {
+  background: var(--color-primary);
+  color: white;
+}
+
+.allergen-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
   margin-bottom: 0.75rem;
+}
+
+.allergen-card-header > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.allergen-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
 }
 
 .allergen-name {
   font-weight: 600;
   font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .allergen-name-latin {
   font-size: 0.75rem;
   color: var(--color-text-secondary);
   font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .severity-badge {
@@ -297,10 +421,16 @@ header h1 {
   text-align: center;
   font-size: 0.7rem;
   color: var(--color-text-secondary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .forecast-day-label {
-  display: block;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
   margin-bottom: 0.25rem;
 }
 
@@ -458,5 +588,9 @@ footer {
   .source-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .allergen-card-hide-btn {
+    opacity: 0.4;
   }
 }

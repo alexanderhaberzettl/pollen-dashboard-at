@@ -79,6 +79,61 @@ function zipToState(zip) {
   return null;
 }
 
+// ── Hidden Allergens (localStorage) ─────────────────────────────────
+
+function getHiddenAllergens() {
+  try {
+    return JSON.parse(localStorage.getItem('hiddenAllergens')) || [];
+  } catch { return []; }
+}
+
+function setHiddenAllergens(names) {
+  localStorage.setItem('hiddenAllergens', JSON.stringify(names));
+}
+
+function hideAllergen(name) {
+  const hidden = getHiddenAllergens();
+  if (!hidden.includes(name)) {
+    hidden.push(name);
+    setHiddenAllergens(hidden);
+  }
+}
+
+function unhideAllergen(name) {
+  setHiddenAllergens(getHiddenAllergens().filter((n) => n !== name));
+}
+
+function renderHiddenSection(container, hiddenNames) {
+  container.innerHTML = '';
+  if (hiddenNames.length === 0) return;
+
+  const toggle = document.createElement('button');
+  toggle.className = 'hidden-allergens-toggle';
+  toggle.innerHTML = `<span class="chevron">&#9654;</span> ${hiddenNames.length} Allergen${hiddenNames.length > 1 ? 'e' : ''} ausgeblendet`;
+
+  const list = document.createElement('div');
+  list.className = 'hidden-allergens-list';
+
+  hiddenNames.forEach((name) => {
+    const chip = document.createElement('span');
+    chip.className = 'hidden-allergen-chip';
+    chip.innerHTML = `${escapeHtml(name)} <button title="Wieder einblenden">+</button>`;
+    chip.querySelector('button').addEventListener('click', () => {
+      unhideAllergen(name);
+      reRender();
+    });
+    list.appendChild(chip);
+  });
+
+  toggle.addEventListener('click', () => {
+    toggle.classList.toggle('expanded');
+    list.classList.toggle('visible');
+  });
+
+  container.appendChild(toggle);
+  container.appendChild(list);
+}
+
 // ── DOM References ──────────────────────────────────────────────────
 
 const zipInput = document.getElementById('zip-input');
@@ -90,6 +145,11 @@ const results = document.getElementById('results');
 const resultsTitle = document.getElementById('results-title');
 const resultsDate = document.getElementById('results-date');
 const openMeteoGrid = document.getElementById('open-meteo-grid');
+
+// Cache last data for re-rendering after hide/unhide
+let lastLocation = null;
+let lastPollenData = null;
+let lastPollenInfoData = null;
 
 // ── Event Listeners ─────────────────────────────────────────────────
 
@@ -140,6 +200,11 @@ async function handleSearch() {
       fetchPollenInfo(location.lat, location.lon).catch((err) => ({ error: err.message })),
     ]);
 
+    // Cache data for re-rendering
+    lastLocation = location;
+    lastPollenData = pollenData;
+    lastPollenInfoData = pollenInfoData;
+
     // Step 3: Render results
     renderResults(location, pollenData);
     renderPollenInfoResults(pollenInfoData);
@@ -150,6 +215,11 @@ async function handleSearch() {
     hideLoading();
     searchBtn.disabled = false;
   }
+}
+
+function reRender() {
+  if (lastLocation && lastPollenData) renderResults(lastLocation, lastPollenData);
+  if (lastPollenInfoData) renderPollenInfoResults(lastPollenInfoData);
 }
 
 // ── Geocoding ───────────────────────────────────────────────────────
@@ -309,6 +379,9 @@ function renderResults(location, pollenData) {
         Pollendaten sind hauptsächlich während der Pollensaison (Februar–September) verfügbar.
       </div>`;
   } else {
+    const hidden = getHiddenAllergens();
+    const hiddenInSection = [];
+
     // Sort: active allergens first, then by severity
     const severityOrder = { very_high: 4, high: 3, moderate: 2, low: 1, none: 0 };
     const sortedKeys = Object.keys(pollenData.allergens).sort((a, b) => {
@@ -319,8 +392,14 @@ function renderResults(location, pollenData) {
     for (const key of sortedKeys) {
       const data = pollenData.allergens[key];
       const config = ALLERGENS[key];
+      if (hidden.includes(config.name)) {
+        hiddenInSection.push(config.name);
+        continue;
+      }
       openMeteoGrid.appendChild(createAllergenCard(config, data));
     }
+
+    renderHiddenSection(document.getElementById('open-meteo-hidden'), hiddenInSection);
   }
 
   showResults();
@@ -351,7 +430,10 @@ function createAllergenCard(config, data) {
         <div class="allergen-name">${config.name}</div>
         <div class="allergen-name-latin">${config.latin}</div>
       </div>
-      <span class="severity-badge ${severityClass}">${severityLabel}</span>
+      <div class="allergen-card-actions">
+        <span class="severity-badge ${severityClass}">${severityLabel}</span>
+        <button class="allergen-card-hide-btn" title="Ausblenden">&times;</button>
+      </div>
     </div>
     <div class="allergen-value">
       Aktuell: ${data.current} grains/m³ · Tageshoch: ${data.todayMax} grains/m³
@@ -362,6 +444,11 @@ function createAllergenCard(config, data) {
     <div class="forecast-row">
       ${forecastHTML}
     </div>`;
+
+  card.querySelector('.allergen-card-hide-btn').addEventListener('click', () => {
+    hideAllergen(config.name);
+    reRender();
+  });
 
   return card;
 }
@@ -487,9 +574,18 @@ function renderPollenInfoResults(data) {
   }
 
   // Allergen cards
+  const hidden = getHiddenAllergens();
+  const hiddenInSection = [];
+
   for (const allergen of data.allergens) {
+    if (hidden.includes(allergen.name)) {
+      hiddenInSection.push(allergen.name);
+      continue;
+    }
     grid.appendChild(createPollenInfoCard(allergen));
   }
+
+  renderHiddenSection(document.getElementById('polleninfo-hidden'), hiddenInSection);
 }
 
 function createPollenInfoCard(allergen) {
@@ -516,7 +612,10 @@ function createPollenInfoCard(allergen) {
         <div class="allergen-name">${escapeHtml(allergen.name)}</div>
         ${allergen.latin ? `<div class="allergen-name-latin">${escapeHtml(allergen.latin)}</div>` : ''}
       </div>
-      <span class="severity-badge ${severityClass}">${severityLabel}</span>
+      <div class="allergen-card-actions">
+        <span class="severity-badge ${severityClass}">${severityLabel}</span>
+        <button class="allergen-card-hide-btn" title="Ausblenden">&times;</button>
+      </div>
     </div>
     <div class="allergen-value">
       Belastungsstufe: ${allergen.todayLevel}/4
@@ -527,6 +626,11 @@ function createPollenInfoCard(allergen) {
     <div class="forecast-row">
       ${forecastHTML}
     </div>`;
+
+  card.querySelector('.allergen-card-hide-btn').addEventListener('click', () => {
+    hideAllergen(allergen.name);
+    reRender();
+  });
 
   return card;
 }
