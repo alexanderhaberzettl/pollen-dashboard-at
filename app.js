@@ -45,7 +45,7 @@ const DAY_LABELS = ['Heute', 'Morgen', 'Übermorgen', 'In 3 Tagen'];
 
 // ── Polleninformation.at Config ─────────────────────────────────────
 
-const POLLENINFO_API_KEY = 'vZgxd0kWcGaEcYnzMRPpqRFGVcn6NDh26fcvnNEzquq0RGHgRqxg9lG8oW8JZXrt';
+const POLLEN_PROXY_URL = 'https://pollen-trmnl.pollenapp-trmnl.workers.dev/api/pollen';
 
 // Contamination level 0–4 mapped to our severity scale
 const CONTAMINATION_SEVERITY = ['none', 'low', 'moderate', 'high', 'very_high'];
@@ -467,15 +467,8 @@ function getSeverityColor(severity) {
 // ── Polleninformation.at API ─────────────────────────────────────────
 
 async function fetchPollenInfo(lat, lon) {
-  const params = new URLSearchParams({
-    country: 'AT',
-    lang: 'de',
-    latitude: lat,
-    longitude: lon,
-    apikey: POLLENINFO_API_KEY,
-  });
-
-  const url = `https://www.polleninformation.at/api/forecast/public?${params}`;
+  const params = new URLSearchParams({ lat, lon });
+  const url = `${POLLEN_PROXY_URL}?${params}`;
 
   const fetchOpts = {};
   if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {

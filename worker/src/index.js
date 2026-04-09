@@ -1,10 +1,35 @@
 const API_KEY = 'vZgxd0kWcGaEcYnzMRPpqRFGVcn6NDh26fcvnNEzquq0RGHgRqxg9lG8oW8JZXrt';
 const DAY_LABELS = ['Heute', 'Morgen', 'Überm.', 'In 3 T.'];
 const SEVERITY_LABELS = ['Keine', 'Gering', 'Mäßig', 'Hoch', 'Sehr hoch'];
+const CACHE_TTL = 6 * 60 * 60; // 6 hours in seconds
 
 export default {
   async fetch(request) {
     const url = new URL(request.url);
+    const path = url.pathname;
+
+    // CORS headers for JSON API
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    };
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    // JSON API endpoint: /api/pollen?lat=...&lon=...
+    if (path === '/api/pollen') {
+      return handleApiPollen(url, corsHeaders);
+    }
+
+    // JSON API endpoint: /api/pollen-by-zip?zip=...
+    if (path === '/api/pollen-by-zip') {
+      return handleApiPollenByZip(url, corsHeaders);
+    }
+
+    // Original TRMNL HTML endpoint: /?zip=...
     const zip = url.searchParams.get('zip') || url.searchParams.get('ZIP')
               || url.searchParams.get('plz') || url.searchParams.get('PLZ');
 
@@ -14,13 +39,92 @@ export default {
 
     try {
       const loc = await geocode(zip);
-      const data = await fetchPollen(loc.lat, loc.lon);
+      const data = await fetchPollenCached(loc.lat, loc.lon);
       return html(render(data));
     } catch (e) {
       return html(renderError(e.message));
     }
   },
 };
+
+// ── JSON API handlers ───────────────────────────────────────────────
+
+async function handleApiPollen(url, corsHeaders) {
+  const lat = parseFloat(url.searchParams.get('lat'));
+  const lon = parseFloat(url.searchParams.get('lon'));
+
+  if (isNaN(lat) || isNaN(lon)) {
+    return jsonResponse({ error: 'Missing lat/lon parameters' }, 400, corsHeaders);
+  }
+
+  try {
+    const data = await fetchPollenCached(lat, lon);
+    return jsonResponse(data, 200, corsHeaders);
+  } catch (e) {
+    return jsonResponse({ error: e.message }, 502, corsHeaders);
+  }
+}
+
+async function handleApiPollenByZip(url, corsHeaders) {
+  const zip = url.searchParams.get('zip') || url.searchParams.get('ZIP')
+            || url.searchParams.get('plz') || url.searchParams.get('PLZ');
+
+  if (!zip) {
+    return jsonResponse({ error: 'Missing zip parameter' }, 400, corsHeaders);
+  }
+
+  try {
+    const loc = await geocode(zip);
+    const data = await fetchPollenCached(loc.lat, loc.lon);
+    return jsonResponse(data, 200, corsHeaders);
+  } catch (e) {
+    return jsonResponse({ error: e.message }, 502, corsHeaders);
+  }
+}
+
+function jsonResponse(data, status, corsHeaders) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json;charset=UTF-8',
+      'Cache-Control': `public, max-age=${CACHE_TTL}`,
+      ...corsHeaders,
+    },
+  });
+}
+
+// ── Caching layer ───────────────────────────────────────────────────
+
+async function fetchPollenCached(lat, lon) {
+  // Round coordinates to 2 decimal places for cache key grouping
+  // (≈1km precision — close enough for pollen forecasts)
+  const rlat = Math.round(lat * 100) / 100;
+  const rlon = Math.round(lon * 100) / 100;
+  const cacheKey = new Request(`https://pollen-cache/v1/${rlat}/${rlon}`);
+
+  const cache = caches.default;
+  let response = await cache.match(cacheKey);
+
+  if (response) {
+    return response.json();
+  }
+
+  // Cache miss — fetch from upstream API
+  const data = await fetchPollenUpstream(lat, lon);
+
+  // Store in cache with 6-hour TTL
+  const cacheResponse = new Response(JSON.stringify(data), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': `public, max-age=${CACHE_TTL}`,
+    },
+  });
+  await cache.put(cacheKey, cacheResponse.clone());
+
+  return data;
+}
+
+// ── Upstream API calls ──────────────────────────────────────────────
 
 async function geocode(zip) {
   const res = await fetch(
@@ -33,7 +137,7 @@ async function geocode(zip) {
   return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
 }
 
-async function fetchPollen(lat, lon) {
+async function fetchPollenUpstream(lat, lon) {
   const params = new URLSearchParams({
     country: 'AT', lang: 'de', latitude: lat, longitude: lon, apikey: API_KEY,
   });
@@ -41,6 +145,8 @@ async function fetchPollen(lat, lon) {
   if (!res.ok) throw new Error(`API-Fehler: HTTP ${res.status}`);
   return await res.json();
 }
+
+// ── TRMNL HTML rendering ────────────────────────────────────────────
 
 function render(data) {
   const risk = data.allergyrisk || {};
