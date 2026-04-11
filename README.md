@@ -24,17 +24,36 @@ Auto-refreshes every 30 minutes.
 
 ## Cloudflare Worker caching proxy
 
-The `worker/` directory contains a Cloudflare Worker that acts as a caching proxy in front of the polleninformation.at API. Both the main app and `trmnl.html` call the worker instead of hitting the upstream API directly. This dramatically reduces load on the upstream API: regardless of how many users visit, the worker only forwards a request to polleninformation.at once per location every **6 hours**. Coordinates are rounded to ~1km precision so nearby visitors share the same cache entry.
+The `worker/` directory contains a Cloudflare Worker that acts as a caching proxy in front of the polleninformation.at API. Both the main app and `trmnl.html` call the worker instead of hitting the upstream API directly. This dramatically reduces load on the upstream API: regardless of how many users visit, the worker only forwards a request to polleninformation.at once per location every **6 hours**.
 
-The worker exposes three endpoints:
+### Endpoints
 
 - `GET /?zip=1150` — server-rendered HTML for TRMNL devices
 - `GET /api/pollen?lat=…&lon=…` — JSON proxy used by the main dashboard
 - `GET /api/pollen-by-zip?zip=…` — JSON proxy with built-in geocoding (used by `trmnl.html`)
 
-Cache behaviour is observable: every JSON response includes an `X-Cache: HIT|MISS` header, and the worker logs `CACHE_HIT` / `CACHE_MISS` lines to `wrangler tail` and the Cloudflare Logs dashboard.
+### Two-layer cache
 
-Deploy with:
+The worker uses two independent caches so that repeat visits make **zero** outbound subrequests:
+
+1. **Geocode cache** — `zip → lat/lon`, 30-day TTL. Zip centroids are effectively permanent, so a long TTL is safe and also respects [Nominatim's usage policy](https://operations.osmfoundation.org/policies/nominatim/) that asks clients to cache results.
+2. **Pollen cache** — `rounded lat/lon → API response`, 6-hour TTL. Coordinates are rounded to 2 decimal places (~1 km) so that nearby visitors share the same cache entry.
+
+Effective API load per location (worst case):
+- **polleninformation.at:** once every 6 hours
+- **Nominatim:** once every 30 days per unique postal code
+
+### Observability
+
+Every JSON response includes cache status headers:
+
+- `X-Cache: HIT | MISS` — combined (HIT only if both layers hit → zero subrequests)
+- `X-Cache-Geocode: HIT | MISS` — was Nominatim called?
+- `X-Cache-Pollen: HIT | MISS` — was polleninformation.at called?
+
+The worker logs `GEOCODE_CACHE_HIT` / `GEOCODE_CACHE_MISS` / `POLLEN_CACHE_HIT` / `POLLEN_CACHE_MISS` lines that can be tailed live via `npx wrangler tail` or searched in the Cloudflare dashboard (Workers & Pages → `pollen-trmnl` → Observability → Logs). Workers Observability is enabled in `wrangler.toml` with full (100 %) sampling.
+
+### Deploy
 
 ```bash
 cd worker && npx wrangler deploy
