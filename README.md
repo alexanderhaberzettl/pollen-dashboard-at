@@ -22,6 +22,24 @@ Allergens can be hidden individually and the preference is saved in localStorage
 
 Auto-refreshes every 30 minutes.
 
+## Cloudflare Worker caching proxy
+
+The `worker/` directory contains a Cloudflare Worker that acts as a caching proxy in front of the polleninformation.at API. Both the main app and `trmnl.html` call the worker instead of hitting the upstream API directly. This dramatically reduces load on the upstream API: regardless of how many users visit, the worker only forwards a request to polleninformation.at once per location every **6 hours**. Coordinates are rounded to ~1km precision so nearby visitors share the same cache entry.
+
+The worker exposes three endpoints:
+
+- `GET /?zip=1150` — server-rendered HTML for TRMNL devices
+- `GET /api/pollen?lat=…&lon=…` — JSON proxy used by the main dashboard
+- `GET /api/pollen-by-zip?zip=…` — JSON proxy with built-in geocoding (used by `trmnl.html`)
+
+Cache behaviour is observable: every JSON response includes an `X-Cache: HIT|MISS` header, and the worker logs `CACHE_HIT` / `CACHE_MISS` lines to `wrangler tail` and the Cloudflare Logs dashboard.
+
+Deploy with:
+
+```bash
+cd worker && npx wrangler deploy
+```
+
 ## Running locally
 
 Requires [Node.js](https://nodejs.org/). Then:
