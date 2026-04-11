@@ -1,7 +1,8 @@
 const API_KEY = 'vZgxd0kWcGaEcYnzMRPpqRFGVcn6NDh26fcvnNEzquq0RGHgRqxg9lG8oW8JZXrt';
 const DAY_LABELS = ['Heute', 'Morgen', 'Überm.', 'In 3 T.'];
 const SEVERITY_LABELS = ['Keine', 'Gering', 'Mäßig', 'Hoch', 'Sehr hoch'];
-const CACHE_TTL = 6 * 60 * 60; // 6 hours in seconds
+const POLLEN_CACHE_TTL = 6 * 60 * 60;        // 6 hours
+const GEOCODE_CACHE_TTL = 30 * 24 * 60 * 60; // 30 days (zip centroids are ~permanent)
 
 export default {
   async fetch(request) {
@@ -38,7 +39,7 @@ export default {
     }
 
     try {
-      const loc = await geocode(zip);
+      const loc = await geocodeCached(zip);
       const { data } = await fetchPollenCached(loc.lat, loc.lon);
       return html(render(data));
     } catch (e) {
@@ -74,25 +75,31 @@ async function handleApiPollenByZip(url, corsHeaders) {
   }
 
   try {
-    const loc = await geocode(zip);
-    const { data, cacheStatus } = await fetchPollenCached(loc.lat, loc.lon);
-    return jsonResponse(data, 200, corsHeaders, cacheStatus);
+    const { lat, lon, cacheStatus: geoStatus } = await geocodeCached(zip);
+    const { data, cacheStatus: pollenStatus } = await fetchPollenCached(lat, lon);
+    // Combined status: HIT only if BOTH layers hit cache (= zero subrequests)
+    const combined = geoStatus === 'HIT' && pollenStatus === 'HIT' ? 'HIT' : 'MISS';
+    return jsonResponse(data, 200, corsHeaders, combined, { geoStatus, pollenStatus });
   } catch (e) {
     return jsonResponse({ error: e.message }, 502, corsHeaders);
   }
 }
 
-function jsonResponse(data, status, corsHeaders, cacheStatus) {
+function jsonResponse(data, status, corsHeaders, cacheStatus, detail) {
   const headers = {
     'Content-Type': 'application/json;charset=UTF-8',
-    'Cache-Control': `public, max-age=${CACHE_TTL}`,
+    'Cache-Control': `public, max-age=${POLLEN_CACHE_TTL}`,
     ...corsHeaders,
   };
   if (cacheStatus) headers['X-Cache'] = cacheStatus;
+  if (detail) {
+    if (detail.geoStatus) headers['X-Cache-Geocode'] = detail.geoStatus;
+    if (detail.pollenStatus) headers['X-Cache-Pollen'] = detail.pollenStatus;
+  }
   return new Response(JSON.stringify(data), { status, headers });
 }
 
-// ── Caching layer ───────────────────────────────────────────────────
+// ── Caching layer: pollen data (6h TTL, keyed by rounded lat/lon) ──
 
 async function fetchPollenCached(lat, lon) {
   // Round coordinates to 2 decimal places for cache key grouping
@@ -105,19 +112,19 @@ async function fetchPollenCached(lat, lon) {
   let response = await cache.match(cacheKey);
 
   if (response) {
-    console.log(`CACHE_HIT lat=${rlat} lon=${rlon}`);
+    console.log(`POLLEN_CACHE_HIT lat=${rlat} lon=${rlon}`);
     return { data: await response.json(), cacheStatus: 'HIT' };
   }
 
   // Cache miss — fetch from upstream API
-  console.log(`CACHE_MISS lat=${rlat} lon=${rlon} — fetching upstream`);
+  console.log(`POLLEN_CACHE_MISS lat=${rlat} lon=${rlon} — fetching upstream`);
   const data = await fetchPollenUpstream(lat, lon);
 
   // Store in cache with 6-hour TTL
   const cacheResponse = new Response(JSON.stringify(data), {
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': `public, max-age=${CACHE_TTL}`,
+      'Cache-Control': `public, max-age=${POLLEN_CACHE_TTL}`,
     },
   });
   await cache.put(cacheKey, cacheResponse.clone());
@@ -125,9 +132,42 @@ async function fetchPollenCached(lat, lon) {
   return { data, cacheStatus: 'MISS' };
 }
 
+// ── Caching layer: zip → lat/lon (30d TTL, centroids are ~permanent) ──
+
+function normalizeZip(zip) {
+  return String(zip).trim();
+}
+
+async function geocodeCached(zip) {
+  const normZip = normalizeZip(zip);
+  const cacheKey = new Request(`https://pollen-cache/v1/geocode/AT/${normZip}`);
+
+  const cache = caches.default;
+  const response = await cache.match(cacheKey);
+
+  if (response) {
+    const loc = await response.json();
+    console.log(`GEOCODE_CACHE_HIT zip=${normZip}`);
+    return { ...loc, cacheStatus: 'HIT' };
+  }
+
+  console.log(`GEOCODE_CACHE_MISS zip=${normZip} — calling Nominatim`);
+  const loc = await geocodeUpstream(normZip);
+
+  const cacheResponse = new Response(JSON.stringify(loc), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': `public, max-age=${GEOCODE_CACHE_TTL}`,
+    },
+  });
+  await cache.put(cacheKey, cacheResponse.clone());
+
+  return { ...loc, cacheStatus: 'MISS' };
+}
+
 // ── Upstream API calls ──────────────────────────────────────────────
 
-async function geocode(zip) {
+async function geocodeUpstream(zip) {
   const res = await fetch(
     `https://nominatim.openstreetmap.org/search?postalcode=${zip}&country=AT&format=json&limit=1`,
     { headers: { 'Accept': 'application/json', 'User-Agent': 'pollen-trmnl-worker' } }
