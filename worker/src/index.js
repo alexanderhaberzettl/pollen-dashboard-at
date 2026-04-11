@@ -39,7 +39,7 @@ export default {
 
     try {
       const loc = await geocode(zip);
-      const data = await fetchPollenCached(loc.lat, loc.lon);
+      const { data } = await fetchPollenCached(loc.lat, loc.lon);
       return html(render(data));
     } catch (e) {
       return html(renderError(e.message));
@@ -58,8 +58,8 @@ async function handleApiPollen(url, corsHeaders) {
   }
 
   try {
-    const data = await fetchPollenCached(lat, lon);
-    return jsonResponse(data, 200, corsHeaders);
+    const { data, cacheStatus } = await fetchPollenCached(lat, lon);
+    return jsonResponse(data, 200, corsHeaders, cacheStatus);
   } catch (e) {
     return jsonResponse({ error: e.message }, 502, corsHeaders);
   }
@@ -75,22 +75,21 @@ async function handleApiPollenByZip(url, corsHeaders) {
 
   try {
     const loc = await geocode(zip);
-    const data = await fetchPollenCached(loc.lat, loc.lon);
-    return jsonResponse(data, 200, corsHeaders);
+    const { data, cacheStatus } = await fetchPollenCached(loc.lat, loc.lon);
+    return jsonResponse(data, 200, corsHeaders, cacheStatus);
   } catch (e) {
     return jsonResponse({ error: e.message }, 502, corsHeaders);
   }
 }
 
-function jsonResponse(data, status, corsHeaders) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'Content-Type': 'application/json;charset=UTF-8',
-      'Cache-Control': `public, max-age=${CACHE_TTL}`,
-      ...corsHeaders,
-    },
-  });
+function jsonResponse(data, status, corsHeaders, cacheStatus) {
+  const headers = {
+    'Content-Type': 'application/json;charset=UTF-8',
+    'Cache-Control': `public, max-age=${CACHE_TTL}`,
+    ...corsHeaders,
+  };
+  if (cacheStatus) headers['X-Cache'] = cacheStatus;
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
 // ── Caching layer ───────────────────────────────────────────────────
@@ -106,10 +105,12 @@ async function fetchPollenCached(lat, lon) {
   let response = await cache.match(cacheKey);
 
   if (response) {
-    return response.json();
+    console.log(`CACHE_HIT lat=${rlat} lon=${rlon}`);
+    return { data: await response.json(), cacheStatus: 'HIT' };
   }
 
   // Cache miss — fetch from upstream API
+  console.log(`CACHE_MISS lat=${rlat} lon=${rlon} — fetching upstream`);
   const data = await fetchPollenUpstream(lat, lon);
 
   // Store in cache with 6-hour TTL
@@ -121,7 +122,7 @@ async function fetchPollenCached(lat, lon) {
   });
   await cache.put(cacheKey, cacheResponse.clone());
 
-  return data;
+  return { data, cacheStatus: 'MISS' };
 }
 
 // ── Upstream API calls ──────────────────────────────────────────────
