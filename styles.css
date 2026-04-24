@@ -509,6 +509,56 @@ header h1 {
   color: var(--color-text);
 }
 
+.risk-subheader {
+  font-weight: 400;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+}
+
+/* Hourly allergy-risk chart */
+.hourly-chart {
+  margin-bottom: 0.75rem;
+}
+
+.hourly-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 80px;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.hourly-bar {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  position: relative;
+}
+
+.hourly-bar-fill {
+  width: 100%;
+  min-height: 1px;
+  border-radius: 2px 2px 0 0;
+  transition: height 0.4s ease;
+}
+
+.hourly-bar.is-now {
+  outline: 1px solid var(--color-text);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+.hourly-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--color-text-secondary);
+  padding: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ORF Section */
 .orf-badge {
   background: #f0fdf4;
