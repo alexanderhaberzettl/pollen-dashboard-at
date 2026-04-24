@@ -464,6 +464,15 @@ function getSeverityColor(severity) {
   return colors[severity] || '#e5e7eb';
 }
 
+// Maps a 0–10 allergy risk value to the same severity palette used elsewhere.
+function riskColor(v) {
+  if (v <= 2) return 'var(--color-none)';
+  if (v <= 4) return 'var(--color-low)';
+  if (v <= 6) return 'var(--color-moderate)';
+  if (v <= 8) return 'var(--color-high)';
+  return 'var(--color-very-high)';
+}
+
 // ── Polleninformation.at API ─────────────────────────────────────────
 
 async function fetchPollenInfo(lat, lon) {
@@ -543,26 +552,52 @@ function renderPollenInfoResults(data) {
 
   // Allergy risk summary
   const risk = data.allergyRisk;
+  const hourly = data.allergyRiskHourly?.allergyrisk_hourly_1;
   if (risk.allergyrisk_1 != null) {
     const riskBar = document.createElement('div');
     riskBar.className = 'allergy-risk-summary';
-    const riskToday = risk.allergyrisk_1;
-    const riskColor = riskToday <= 2 ? 'var(--color-none)' :
-                      riskToday <= 4 ? 'var(--color-low)' :
-                      riskToday <= 6 ? 'var(--color-moderate)' :
-                      riskToday <= 8 ? 'var(--color-high)' :
-                                       'var(--color-very-high)';
 
-    riskBar.innerHTML = `
-      <div class="risk-header">Allergierisiko heute</div>
-      <div class="risk-meter">
-        <div class="risk-meter-fill" style="width:${riskToday * 10}%; background:${riskColor}"></div>
-      </div>
+    const summaryHTML = `
       <div class="risk-values">
         ${[risk.allergyrisk_1, risk.allergyrisk_2, risk.allergyrisk_3, risk.allergyrisk_4]
           .map((v, i) => `<span class="risk-day">${DAY_LABELS[i]}: <strong>${v ?? '–'}</strong>/10</span>`)
           .join('')}
       </div>`;
+
+    if (Array.isArray(hourly) && hourly.length === 24) {
+      const currentHour = new Date().getHours();
+      const peak = Math.max(...hourly);
+      const peakHour = hourly.indexOf(peak);
+      const bars = hourly.map((v, h) => {
+        const heightPct = Math.max(v * 10, v > 0 ? 4 : 0);
+        const color = riskColor(v);
+        const classes = ['hourly-bar'];
+        if (h === currentHour) classes.push('is-now');
+        return `<div class="${classes.join(' ')}" title="${h}:00 – ${v}/10">
+          <div class="hourly-bar-fill" style="height:${heightPct}%; background:${color}"></div>
+        </div>`;
+      }).join('');
+
+      riskBar.innerHTML = `
+        <div class="risk-header">
+          Allergierisiko heute <span class="risk-subheader">(Höchstwert ${peak}/10 um ${peakHour}:00)</span>
+        </div>
+        <div class="hourly-chart">
+          <div class="hourly-bars">${bars}</div>
+          <div class="hourly-axis">
+            <span>0</span><span>6</span><span>12</span><span>18</span><span>24</span>
+          </div>
+        </div>
+        ${summaryHTML}`;
+    } else {
+      const riskToday = risk.allergyrisk_1;
+      riskBar.innerHTML = `
+        <div class="risk-header">Allergierisiko heute</div>
+        <div class="risk-meter">
+          <div class="risk-meter-fill" style="width:${riskToday * 10}%; background:${riskColor(riskToday)}"></div>
+        </div>
+        ${summaryHTML}`;
+    }
     grid.appendChild(riskBar);
   }
 

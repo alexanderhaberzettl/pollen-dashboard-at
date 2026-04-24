@@ -192,19 +192,44 @@ async function fetchPollenUpstream(lat, lon) {
 function render(data) {
   const risk = data.allergyrisk || {};
   const riskToday = risk.allergyrisk_1 ?? null;
+  const hourly = data.allergyrisk_hourly && data.allergyrisk_hourly.allergyrisk_hourly_1;
 
-  const riskSection = riskToday != null ? `
-    <div class="risk-box">
-      <div class="risk-header">Allergierisiko heute: ${riskToday}/10</div>
-      <div class="risk-meter">
-        <div class="risk-meter-fill" style="width:${riskToday * 10}%"></div>
-      </div>
-      <div class="risk-values">
-        ${[risk.allergyrisk_1, risk.allergyrisk_2, risk.allergyrisk_3, risk.allergyrisk_4]
-          .map((v, i) => `<span class="risk-day">${DAY_LABELS[i]}: <strong>${v ?? '–'}</strong>/10</span>`)
-          .join('')}
-      </div>
-    </div>` : '';
+  const summaryRow = `
+    <div class="risk-values">
+      ${[risk.allergyrisk_1, risk.allergyrisk_2, risk.allergyrisk_3, risk.allergyrisk_4]
+        .map((v, i) => `<span class="risk-day">${DAY_LABELS[i]}: <strong>${v ?? '–'}</strong>/10</span>`)
+        .join('')}
+    </div>`;
+
+  let riskSection = '';
+  if (riskToday != null) {
+    if (Array.isArray(hourly) && hourly.length === 24) {
+      const peak = Math.max(...hourly);
+      const peakHour = hourly.indexOf(peak);
+      const bars = hourly.map((v) => {
+        const heightPct = Math.max(v * 10, v > 0 ? 4 : 0);
+        return `<div class="hourly-bar"><div class="hourly-bar-fill" style="height:${heightPct}%"></div></div>`;
+      }).join('');
+      riskSection = `
+        <div class="risk-box">
+          <div class="risk-header">Allergierisiko heute — Höchstwert ${peak}/10 um ${peakHour}:00</div>
+          <div class="hourly-chart">
+            <div class="hourly-bars">${bars}</div>
+            <div class="hourly-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>
+          </div>
+          ${summaryRow}
+        </div>`;
+    } else {
+      riskSection = `
+        <div class="risk-box">
+          <div class="risk-header">Allergierisiko heute: ${riskToday}/10</div>
+          <div class="risk-meter">
+            <div class="risk-meter-fill" style="width:${riskToday * 10}%"></div>
+          </div>
+          ${summaryRow}
+        </div>`;
+    }
+  }
 
   const allergens = (data.contamination || [])
     .map(item => {
@@ -280,6 +305,11 @@ function html(body) {
     .risk-meter-fill { height: 100%; background: #000; }
     .risk-values { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.85rem; }
     .risk-day strong { font-weight: 700; }
+    .hourly-chart { margin-bottom: 8px; }
+    .hourly-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; border-bottom: 1px solid #000; padding: 0 1px; }
+    .hourly-bar { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+    .hourly-bar-fill { width: 100%; background: #000; min-height: 1px; }
+    .hourly-axis { display: flex; justify-content: space-between; font-size: 0.7rem; padding-top: 2px; }
     .allergen-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
     .allergen-table th { text-align: center; font-weight: 600; font-size: 0.75rem; padding: 4px 6px 6px; border-bottom: 2px solid #000; color: #333; }
     .allergen-table th:first-child { text-align: left; }
