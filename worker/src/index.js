@@ -197,7 +197,7 @@ function render(data) {
   const summaryRow = `
     <div class="risk-values">
       ${[risk.allergyrisk_1, risk.allergyrisk_2, risk.allergyrisk_3, risk.allergyrisk_4]
-        .map((v, i) => `<span class="risk-day">${DAY_LABELS[i]}: <strong>${v ?? '–'}</strong>/10</span>`)
+        .map((v, i) => `<span class="risk-day">${DAY_LABELS[i]}: <strong>${v ?? '–'}</strong>/5</span>`)
         .join('')}
     </div>`;
 
@@ -207,12 +207,12 @@ function render(data) {
       const peak = Math.max(...hourly);
       const peakHour = hourly.indexOf(peak);
       const bars = hourly.map((v) => {
-        const heightPct = Math.max(v * 10, v > 0 ? 4 : 0);
+        const heightPct = Math.max(v * 20, v > 0 ? 4 : 0);
         return `<div class="hourly-bar"><div class="hourly-bar-fill" style="height:${heightPct}%"></div></div>`;
       }).join('');
       riskSection = `
         <div class="risk-box">
-          <div class="risk-header">Allergierisiko heute — Höchstwert ${peak}/10 um ${peakHour}:00</div>
+          <div class="risk-header">Allergierisiko heute — Höchstwert ${peak}/5 um ${peakHour}:00</div>
           <div class="hourly-chart">
             <div class="hourly-bars">${bars}</div>
             <div class="hourly-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>
@@ -222,9 +222,9 @@ function render(data) {
     } else {
       riskSection = `
         <div class="risk-box">
-          <div class="risk-header">Allergierisiko heute: ${riskToday}/10</div>
+          <div class="risk-header">Allergierisiko heute: ${riskToday}/5</div>
           <div class="risk-meter">
-            <div class="risk-meter-fill" style="width:${riskToday * 10}%"></div>
+            <div class="risk-meter-fill" style="width:${riskToday * 20}%"></div>
           </div>
           ${summaryRow}
         </div>`;
