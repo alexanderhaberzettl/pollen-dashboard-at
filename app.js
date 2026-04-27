@@ -193,6 +193,12 @@ async function handleSearch() {
     const location = await geocodeZip(zip);
     locationInfo.textContent = `📍 ${location.display} (${location.lat.toFixed(4)}°N, ${location.lon.toFixed(4)}°E)`;
 
+    const trmnlLink = document.getElementById('trmnl-link');
+    if (trmnlLink) {
+      trmnlLink.href = `trmnl.html?zip=${zip}`;
+      trmnlLink.hidden = false;
+    }
+
     // Step 2: Fetch pollen data from all sources in parallel
     const [pollenData, orfData, pollenInfoData] = await Promise.all([
       fetchOpenMeteoPollen(location.lat, location.lon),
@@ -590,7 +596,12 @@ function renderPollenInfoResults(data) {
           Allergierisiko heute <span class="risk-subheader">(Höchstwert ${peak}/10 um ${peakHour}:00)</span>
         </div>
         <div class="hourly-chart">
-          <div class="hourly-bars">${bars}</div>
+          <div class="hourly-plot">
+            <div class="hourly-yaxis">
+              <span>10</span><span>5</span><span>0</span>
+            </div>
+            <div class="hourly-bars">${bars}</div>
+          </div>
           <div class="hourly-axis">
             <span>0</span><span>6</span><span>12</span><span>18</span><span>24</span>
           </div>
