@@ -214,7 +214,10 @@ function render(data) {
         <div class="risk-box">
           <div class="risk-header">Allergierisiko heute — Höchstwert ${peak}/10 um ${peakHour}:00</div>
           <div class="hourly-chart">
-            <div class="hourly-bars">${bars}</div>
+            <div class="hourly-plot">
+              <div class="hourly-yaxis"><span>10</span><span>0</span></div>
+              <div class="hourly-bars">${bars}</div>
+            </div>
             <div class="hourly-axis"><span>0</span><span>6</span><span>12</span><span>18</span><span>24</span></div>
           </div>
           ${summaryRow}
@@ -306,10 +309,13 @@ function html(body) {
     .risk-values { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.85rem; }
     .risk-day strong { font-weight: 700; }
     .hourly-chart { margin-bottom: 8px; }
-    .hourly-bars { display: flex; align-items: flex-end; gap: 2px; height: 56px; border-bottom: 1px solid #000; padding: 0 1px; }
+    .hourly-plot { display: flex; align-items: stretch; gap: 3px; }
+    .hourly-yaxis { display: flex; flex-direction: column; justify-content: space-between; width: 14px; height: 56px; font-size: 0.65rem; color: #000; text-align: right; line-height: 1; }
+    .hourly-yaxis span:last-child { transform: translateY(100%); }
+    .hourly-bars { flex: 1; display: flex; align-items: flex-end; gap: 2px; height: 56px; border-bottom: 1px solid #000; padding: 0 1px; background-image: linear-gradient(to bottom, transparent calc(50% - 1px), #bbb calc(50% - 1px), #bbb 50%, transparent 50%); background-repeat: no-repeat; background-size: 100% 100%; }
     .hourly-bar { flex: 1; height: 100%; display: flex; align-items: flex-end; }
-    .hourly-bar-fill { width: 100%; background: #000; min-height: 1px; }
-    .hourly-axis { display: flex; justify-content: space-between; font-size: 0.7rem; padding-top: 2px; }
+    .hourly-bar-fill { width: 100%; background: #000; min-height: 1px; position: relative; z-index: 1; }
+    .hourly-axis { display: flex; justify-content: space-between; font-size: 0.7rem; padding: 2px 0 0 calc(14px + 3px + 1px); }
     .allergen-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
     .allergen-table th { text-align: center; font-weight: 600; font-size: 0.75rem; padding: 4px 6px 6px; border-bottom: 2px solid #000; color: #333; }
     .allergen-table th:first-child { text-align: left; }
